@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#14323a">
+<title>Tartu Crossing Survey</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="map" aria-label="Map"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <strong>Tartu Crossing Survey</strong>
+    <span id="progress" class="muted">loading…</span>
+  </div>
+  <button id="locate" class="iconbtn" aria-label="Center on my location" title="Center on me">◎</button>
+</header>
+
+<!-- ride banner: shown while a loop is active -->
+<section id="ride" class="ride" hidden>
+  <div class="ride-main">
+    <div class="ride-arrow" id="rideArrow" aria-hidden="true">↑</div>
+    <div class="ride-text">
+      <div class="ride-label" id="rideLabel">–</div>
+      <div class="ride-sub" id="rideSub">–</div>
+    </div>
+  </div>
+  <div class="ride-actions">
+    <button id="rideLog" class="btn primary">Log this crossing</button>
+    <button id="rideSkip" class="btn">Skip</button>
+    <button id="rideStop" class="btn ghost">End ride</button>
+  </div>
+</section>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" data-tab="plan" class="tab active">Ride</button>
+  <button role="tab" data-tab="results" class="tab">Results</button>
+  <button role="tab" data-tab="route" class="tab">Route</button>
+  <button role="tab" data-tab="settings" class="tab">Setup</button>
+</nav>
+
+<section id="sheet" class="sheet" aria-live="polite">
+  <button class="sheet-grip" id="grip" aria-label="Expand or collapse panel"><span></span></button>
+
+  <!-- PLAN -->
+  <div class="pane" data-pane="plan">
+    <h2>Pick a loop</h2>
+    <div id="batteryLine" class="callout"></div>
+    <label class="check"><input type="checkbox" id="onlyUnlogged" checked> Skip crossings I've already logged</label>
+    <ul id="loopList" class="loops"></ul>
+  </div>
+
+  <!-- RESULTS -->
+  <div class="pane" data-pane="results" hidden>
+    <h2>Results</h2>
+    <div class="legend">
+      <span><i class="dot ok"></i>Fits trailer / cross in one go</span>
+      <span><i class="dot tight"></i>Tight</span>
+      <span><i class="dot bad"></i>Median too short</span>
+      <span><i class="dot todo"></i>Not logged</span>
+      <span><i class="dot plain"></i>No lights</span>
+    </div>
+    <div id="stats" class="stats"></div>
+    <div class="row wrap">
+      <button id="exportJson" class="btn">Export JSON</button>
+      <button id="exportCsv" class="btn">Export CSV</button>
+      <label class="btn">Import JSON<input type="file" id="importJson" accept="application/json,.json" hidden></label>
+    </div>
+    <p class="muted small">Import merges another export into this phone (newest edit per crossing wins). Use it to move data between devices.</p>
+    <h3>Logged crossings</h3>
+    <ul id="logList" class="loglist"></ul>
+  </div>
+
+  <!-- ROUTE -->
+  <div class="pane" data-pane="route" hidden>
+    <h2>Plan a route</h2>
+    <p class="muted small">Tap the map to set where you're going. The route starts from your location, or tap "Start somewhere else" first.</p>
+    <div class="row">
+      <div class="pt"><span class="pin a">A</span><span id="ptA">My location</span></div>
+      <div class="pt"><span class="pin b">B</span><span id="ptB">Tap the map</span></div>
+    </div>
+    <div class="chips pick"><button id="pickStart">Start somewhere else</button></div>
+    <fieldset class="seg" id="lightPref">
+      <legend>Traffic lights</legend>
+      <label><input type="radio" name="lights" value="neutral" checked><span>Don't care</span></label>
+      <label><input type="radio" name="lights" value="avoid"><span>Avoid lights</span></label>
+      <label><input type="radio" name="lights" value="favour"><span>Favour lights</span></label>
+    </fieldset>
+    <label class="check"><input type="checkbox" id="trailerSafe" checked> Trailer-safe: avoid crossings where the median is too short</label>
+    <label class="check"><input type="checkbox" id="avoidUnknownSplit"> Also avoid unchecked crossings that look two-step</label>
+    <div class="row">
+      <button id="routeGo" class="btn primary">Find route</button>
+      <button id="routeClear" class="btn ghost">Clear</button>
+    </div>
+    <div id="routeOut" class="callout" hidden></div>
+    <p class="muted small">Routing by BRouter (brouter.de, bike profile) and needs internet.</p>
+  </div>
+
+  <!-- SETTINGS -->
+  <div class="pane" data-pane="settings" hidden>
+    <h2>Scooter &amp; trailer</h2>
+    <label class="field">Scooter model
+      <select id="scooter"></select>
+    </label>
+    <div id="customScooter" class="grid3" hidden>
+      <label class="field">Nominal V<input id="cV" type="number" inputmode="decimal" step="1"></label>
+      <label class="field">Battery Ah<input id="cAh" type="number" inputmode="decimal" step="0.1"></label>
+      <label class="field">Wh per km<input id="cWh" type="number" inputmode="decimal" step="0.5"></label>
+    </div>
+    <label class="field">Battery voltage right now (V)
+      <input id="voltage" type="number" inputmode="decimal" step="0.1" placeholder="e.g. 39.5">
+    </label>
+    <p class="muted small">Read it on the display or with a multimeter after the scooter has rested a few minutes. Voltage under load reads low.</p>
+    <div id="batteryCalc" class="callout"></div>
+    <h2>Trailer</h2>
+    <label class="field">Scooter + trailer length (m)
+      <input id="trailerLen" type="number" inputmode="decimal" step="0.05" min="1" max="6">
+    </label>
+    <label class="field">Safety margin (cm)
+      <input id="margin" type="number" inputmode="numeric" step="5" min="0" max="100">
+    </label>
+    <p class="muted small">A median fits when its length is at least your length plus the margin. Within the margin it counts as tight.</p>
+    <h2>Map</h2>
+    <label class="check"><input type="checkbox" id="showPlain" checked> Show crossings without lights</label>
+    <h2>Data</h2>
+    <p class="muted small">Everything is saved on this phone. Export from Results now and then as a backup.</p>
+    <button id="wipe" class="btn danger">Delete all logged data…</button>
+    <div id="wipeConfirm" class="callout danger" hidden>
+      Delete every log on this phone? This can't be undone.
+      <div class="row"><button id="wipeYes" class="btn danger">Delete</button><button id="wipeNo" class="btn">Keep</button></div>
+    </div>
+    <p class="muted small">Map data © OpenStreetMap contributors (ODbL). Imported <span id="dataDate"></span>.</p>
+  </div>
+</section>
+
+<!-- LOG SHEET (full screen over everything) -->
+<section id="log" class="logsheet" hidden aria-modal="true" role="dialog" aria-labelledby="logTitle">
+  <header class="log-head">
+    <button id="logClose" class="iconbtn" aria-label="Close">✕</button>
+    <div>
+      <h2 id="logTitle">–</h2>
+      <div id="logMeta" class="chips"></div>
+    </div>
+  </header>
+  <div class="log-body">
+    <button id="showTiming" class="btn ghost" style="margin-top:12px;width:100%" hidden>OSM says no lights here. There are lights: time them</button>
+    <section class="block" id="timingBlock">
+      <h3>Light timing</h3>
+      <div class="field">Which side are you timing?
+        <div class="chips pick" id="legPick"></div>
+      </div>
+      <div class="phase-grid">
+        <button class="phase green" data-ev="green">Green</button>
+        <button class="phase flash" data-ev="flash">Flashing green</button>
+        <button class="phase yellow" data-ev="yellow">Yellow</button>
+        <button class="phase red" data-ev="red">Red</button>
+        <button class="phase press" data-ev="press">Pressed button</button>
+      </div>
+      <div class="clock" id="clock">00:00.0</div>
+      <ol id="evList" class="evlist"></ol>
+      <div id="evSummary" class="summary"></div>
+      <div class="row">
+        <button id="evUndo" class="btn ghost">Undo tap</button>
+        <button id="evSave" class="btn primary">Save timing for this side</button>
+      </div>
+      <ul id="savedTimings" class="saved"></ul>
+    </section>
+
+    <section class="block">
+      <h3>The crossing</h3>
+      <div class="field">Can you cross in one go?
+        <div class="chips pick" id="oneGo">
+          <button data-v="yes">Yes, both halves green together</button>
+          <button data-v="no">No, I have to wait in the middle</button>
+          <button data-v="na">No median</button>
+        </div>
+      </div>
+      <label class="field">Median length you'd wait on (cm)
+        <input id="medianCm" type="number" inputmode="numeric" min="0" max="2000" step="5" placeholder="front to back, e.g. 250">
+      </label>
+      <div id="fitLine" class="fit"></div>
+      <div class="field">Push button for bikes/pedestrians?
+        <div class="chips pick" id="button">
+          <button data-v="yes">Yes</button>
+          <button data-v="no">No</button>
+        </div>
+      </div>
+      <label class="field">Note
+        <textarea id="note" rows="2" placeholder="e.g. island is staggered, curb is high"></textarea>
+      </label>
+    </section>
+  </div>
+  <footer class="log-foot">
+    <button id="logSkip" class="btn">Skip crossing</button>
+    <button id="logDone" class="btn primary">Done, next crossing</button>
+  </footer>
+</section>
+
+<div id="toast" class="toast" role="status" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
